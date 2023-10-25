@@ -1,13 +1,11 @@
 # Serve large language models (LLMs) with custom prompt tuning configuration using Kubeflow Pipelines
 
-This repository  idemonstrates how Kubeflow could be levaraged for prompt tuning foundational LLM and serving tuned models. 
-
-This notebook walks throught:
-1. Train the prompt tuning configuration against Hugging Face open source models.
+This repository demonstrates how Kubeflow could be leveraged for prompt tuning foundational LLM and serving the tunned models. 
+Specifically:
+1. Train a prompt tuning configuration against Hugging Face open source model.
 2. Publish a trained configuration to Hugging Face.
-3. Serve the prompt tuning configuration along with HuggingFace open source large language models (LLMs).
-3. Automate prompt tuning processing with Kubeflow Pipelines.
-4. Automate the prompt tuning LLM serving process by using Kubeflow Pipelines. 
+3. Serve a prompt tuning configuration along with HuggingFace open source large language models (LLM).
+
 
 - [Prerequisites](#prerequisites)
 
