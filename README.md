@@ -3,21 +3,22 @@
 This repository demonstrates how Kubeflow could be leveraged for prompt tuning foundational LLM and serving the tunned models. 
 Specifically:
 1. Train a prompt tuning configuration against Hugging Face open source model.
-2. Publish a trained configuration to Hugging Face.
+2. Publish a trained configuration to HuggingFace.
 3. Serve a prompt tuning configuration along with HuggingFace open source large language models (LLM).
+4. Automate the above steps with Kubeflow Pipelines
 
 
 - [Prerequisites](#prerequisites)
 
 - [Kubeflow Installation](#kubeflow-installation)
+- [KServe Modelmesh Installation](#kserve-modelmesh-installation)
+- [Service Account Permissions](#adjust-service-account-permissions)
+- [HuggingFace Token](#create-k8s-secret-with-your-hugging-face-account-token)
 - [Create PodDefault resource](#create-poddefault-resource)
 - [Access Kubeflow UI](#access-kubeflow-ui)
 
-- [KServe Modelmesh Installation](#modelmesh-installation)
-
 - [Import Notebook into Kubeflow JupyterLab](#import-notebook-into-kubeflow-jupyterlab)
 - [Run through the Notebook](#run-through-the-notebook)
-- [Track the workflow using Kubeflow UI](#track-the-workflow-using-kubeflow-ui)
 
 ## Prerequisites
 
