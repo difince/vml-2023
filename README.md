@@ -14,11 +14,11 @@ Specifically:
 - [KServe Modelmesh Installation](#kserve-modelmesh-installation)
 - [Service Account Permissions](#adjust-service-account-permissions)
 - [HuggingFace Token](#create-k8s-secret-with-your-hugging-face-account-token)
-- [Create PodDefault resource](#create-poddefault-resource)
 - [Access Kubeflow UI](#access-kubeflow-ui)
-
-- [Import Notebook into Kubeflow JupyterLab](#import-notebook-into-kubeflow-jupyterlab)
-- [Run through the Notebook](#run-through-the-notebook)
+- [Create PodDefault resource](#create-poddefault-resource)
+- [Run prompt tuning pipeline](#run-prompttuning-pipeline)
+  - [Upload IR yaml file](#1-use-ir-intermideate-representation-yaml-file)
+  - [Import Notebook into Kubeflow JupyterLab](#2-use-the-jupiter-noteboook)
 
 ## Prerequisites
 
@@ -57,7 +57,7 @@ cd modelmesh-serving
 2. Create a namespace called `modelmesh-serving` to deploy ModelMesh to.
 ```bash
 kubectl create namespace modelmesh-serving
-./scripts/install.sh --namespace modelmesh-serving --quickstart
+./scripts/install.sh --namespace-scope-mode --namespace modelmesh-serving --quickstart
 ```
 
 ## Adjust service account permissions
@@ -74,51 +74,54 @@ Modify and execute the following command to store your Hugging Face account toke
 ```
 kubectl create secret generic huggingface-secret --from-literal='token=<HuggingFace_WRITE_Token>' -n kubeflow
 ```
-
-## Create PodDefault resource
-Create `PodDefault` to inject `ServiceAccount` token volumne into your Pods. Once created and configured correctly with your notebook, this will allow all pods created by the notebook to access kubeflow pipelines.
-
-```
-kubectl apply -f - <<EOF
-apiVersion: kubeflow.org/v1alpha1
-kind: PodDefault
-metadata:
-  name: access-kf-pipeline
-  namespace: kubeflow-user-example-com
-spec:
-  desc: Allow access to KFP
-  selector:
-    matchLabels:
-      access-kf-pipeline: "true"
-  volumeMounts:
-    - mountPath: /var/run/secrets/kubeflow/pipelines
-      name: volume-kf-pipeline-token
-      readOnly: true
-  volumes:
-    - name: volume-kf-pipeline-token
-      projected:
-        sources:
-          - serviceAccountToken:
-              path: token
-              expirationSeconds: 7200
-              audience: pipelines.kubeflow.org
-  env:
-    - name: KF_PIPELINES_SA_TOKEN_PATH
-      value: /var/run/secrets/kubeflow/pipelines/token
-EOF
-```
-
 ## Access Kubeflow UI
 
 After successful installation of Kubeflow, use `port-forward` to expose the `istio-ingressgateway` service by running the following
   ```
   kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
   ```
-
 Navigate to [localhost:8080](http://localhost:8080/) and login using `user@example.com` and password `12341234`
 
-## Import Notebook into Kubeflow JupyterLab
+## Run PromptTuning Pipeline
+###  Use IR (Intermediate Representation) Yaml [file](./llm-prompt_tuning_pipeline.yaml)
+You could create the prompt tuning pipeline by uploading the ready to use IR yaml file through the Kubeflow Dashboard. Go to "Pipelines" -> "Upload Pipelines" and select "Upload from file". 
+Then create a run from the pipeline.
+### Use the Jupiter [Notebook](./prompt_tunning_pipeline.ipynb)
+You could leverage the notebook to create the prompt tuning pipeline.  To do so, first you need to  
+- Create `PodDefault` resource to inject `ServiceAccount` token volume into your Pods. Once created and configured correctly with your notebook, this will allow all pods created by the notebook to access kubeflow pipelines.
 
-Once logged in to the Kubeflow dashboard, navigate to "Notebooks" to create a new `JupyterLab` notebook with `kubeflownotebookswg/jupyter-tensorflow-full:v1.8.0-rc.0` image and configuration "Allow access to Kubeflow Pipelines" enabled (available in "Advanced options").
+    ```
+    kubectl apply -f - <<EOF
+    apiVersion: kubeflow.org/v1alpha1
+    kind: PodDefault
+    metadata:
+      name: access-kf-pipeline
+      namespace: kubeflow-user-example-com
+    spec:
+      desc: Allow access to KFP
+      selector:
+        matchLabels:
+          access-kf-pipeline: "true"
+      volumeMounts:
+        - mountPath: /var/run/secrets/kubeflow/pipelines
+          name: volume-kf-pipeline-token
+          readOnly: true
+      volumes:
+        - name: volume-kf-pipeline-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 7200
+                  audience: pipelines.kubeflow.org
+      env:
+        - name: KF_PIPELINES_SA_TOKEN_PATH
+          value: /var/run/secrets/kubeflow/pipelines/token
+    EOF
+    ```
 
-After notebook is running, `connect` to the notebook and upload [this]() notebook.
+- Import [Notebook](./prompt_tunning_pipeline.ipynb) into Kubeflow JupyterLab
+
+    Once logged in to the Kubeflow dashboard, navigate to "Notebooks" to create a new `JupyterLab` notebook with `kubeflownotebookswg/jupyter-tensorflow-full:v1.8.0-rc.0` image and configuration "Allow access to Kubeflow Pipelines" enabled (available in "Advanced options").
+
+    After notebook is running, `connect` to the notebook and upload the [notebook file](./prompt_tunning_pipeline.ipynb) notebook.
