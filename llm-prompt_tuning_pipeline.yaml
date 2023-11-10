@@ -1,0 +1,691 @@
+# PIPELINE DEFINITION
+# Name: serving-llm-with-prompt-tuning
+# Description: A Pipeline for Serving Prompt Tuning LLMs on Modelmesh
+# Inputs:
+#    huggingface_name: str [Default: 'difince']
+#    input_tweet: str [Default: '@nationalgridus I have no water and the bill is current and paid. Can you do something about this?']
+#    model_name: str [Default: 'vml-demo']
+#    model_name_or_path: str [Default: 'bigscience/bloomz-560m']
+#    num_epochs: int [Default: 50.0]
+#    peft_model_publish_id: str [Default: 'bloomz-560m_PROMPT_TUNING_CAUSAL_LM']
+#    test_served_llm_model: str [Default: 'true']
+components:
+  comp-condition-1:
+    dag:
+      tasks:
+        test-modelmesh-model:
+          cachingOptions: {}
+          componentRef:
+            name: comp-test-modelmesh-model
+          inputs:
+            parameters:
+              input_tweet:
+                componentInputParameter: pipelinechannel--input_tweet
+              model_name:
+                componentInputParameter: pipelinechannel--model_name
+              namespace:
+                runtimeValue:
+                  constant: modelmesh-serving
+              service:
+                runtimeValue:
+                  constant: modelmesh-serving
+          taskInfo:
+            name: test-modelmesh-model
+    inputDefinitions:
+      parameters:
+        pipelinechannel--input_tweet:
+          parameterType: STRING
+        pipelinechannel--model_name:
+          parameterType: STRING
+        pipelinechannel--test_served_llm_model:
+          parameterType: STRING
+  comp-deploy-modelmesh-custom-runtime:
+    executorLabel: exec-deploy-modelmesh-custom-runtime
+    inputDefinitions:
+      parameters:
+        huggingface_name:
+          parameterType: STRING
+        image:
+          parameterType: STRING
+        model_name_or_path:
+          parameterType: STRING
+        namespace:
+          parameterType: STRING
+        peft_model_publish_id:
+          parameterType: STRING
+        server_name:
+          parameterType: STRING
+  comp-get-hf-token:
+    executorLabel: exec-get-hf-token
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-inference-svc:
+    executorLabel: exec-inference-svc
+    inputDefinitions:
+      parameters:
+        model_name:
+          parameterType: STRING
+        namespace:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-prompt-tuning-bloom:
+    executorLabel: exec-prompt-tuning-bloom
+    inputDefinitions:
+      parameters:
+        hf_token:
+          parameterType: STRING
+        huggingface_name:
+          parameterType: STRING
+        model_name_or_path:
+          parameterType: STRING
+        num_epochs:
+          parameterType: NUMBER_INTEGER
+        peft_model_publish_id:
+          parameterType: STRING
+  comp-serve-a-model-with-kserve:
+    executorLabel: exec-serve-a-model-with-kserve
+    inputDefinitions:
+      parameters:
+        action:
+          defaultValue: create
+          isOptional: true
+          parameterType: STRING
+        autoscaling_target:
+          defaultValue: '0'
+          isOptional: true
+          parameterType: STRING
+        canary_traffic_percent:
+          defaultValue: '100'
+          isOptional: true
+          parameterType: STRING
+        custom_model_spec:
+          defaultValue: '{}'
+          isOptional: true
+          parameterType: STRING
+        enable_istio_sidecar:
+          defaultValue: true
+          isOptional: true
+          parameterType: BOOLEAN
+        enable_isvc_status:
+          defaultValue: true
+          isOptional: true
+          parameterType: BOOLEAN
+        framework:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        inferenceservice_yaml:
+          defaultValue: '{}'
+          isOptional: true
+          parameterType: STRING
+        max_replicas:
+          defaultValue: '-1'
+          isOptional: true
+          parameterType: STRING
+        min_replicas:
+          defaultValue: '-1'
+          isOptional: true
+          parameterType: STRING
+        model_name:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        model_uri:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        namespace:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        request_timeout:
+          defaultValue: '60'
+          isOptional: true
+          parameterType: STRING
+        service_account:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        watch_timeout:
+          defaultValue: '300'
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        inferenceservice_status:
+          parameterType: STRING
+  comp-test-modelmesh-model:
+    executorLabel: exec-test-modelmesh-model
+    inputDefinitions:
+      parameters:
+        input_tweet:
+          parameterType: STRING
+        model_name:
+          parameterType: STRING
+        namespace:
+          parameterType: STRING
+        service:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-deploy-modelmesh-custom-runtime:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - deploy_modelmesh_custom_runtime
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.3.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kubernetes'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef deploy_modelmesh_custom_runtime(huggingface_name: str, peft_model_publish_id:\
+          \ str, model_name_or_path: str, server_name: str, namespace: str, image:\
+          \ str):\n    import kubernetes.config as k8s_config\n    import kubernetes.client\
+          \ as k8s_client\n    from kubernetes.client.exceptions import ApiException\n\
+          \n    def create_custom_object(group, version, namespace, plural, manifest):\n\
+          \        cfg = k8s_client.Configuration()\n        cfg.verify_ssl=False\n\
+          \        cfg.host = \"https://kubernetes.default.svc\"\n        cfg.api_key_prefix['authorization']\
+          \ = 'Bearer'\n        cfg.ssl_ca_cert = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'\n\
+          \        with open(\"/var/run/secrets/kubernetes.io/serviceaccount/token\"\
+          ) as f:\n            lines = f.readlines()\n            for l in lines:\n\
+          \                cfg.api_key['authorization'] = \"{}\".format(l)\n     \
+          \           break\n        with k8s_client.ApiClient(cfg) as api_client:\n\
+          \            capi = k8s_client.CustomObjectsApi(api_client)\n          \
+          \  try:\n                res = capi.create_namespaced_custom_object(group=group,\n\
+          \                                                           version=version,\
+          \ namespace=namespace,\n                                               \
+          \            plural=plural, body=manifest)\n            except ApiException\
+          \ as e:\n                # object already exists\n                if e.status\
+          \ != 409:\n                    raise\n    custom_runtime_manifest = {\n\
+          \        \"apiVersion\": \"serving.kserve.io/v1alpha1\",\n        \"kind\"\
+          : \"ServingRuntime\",\n        \"metadata\": {\n            \"name\": \"\
+          {}-server\".format(server_name), #vml-demo-server\n            \"namespace\"\
+          : namespace\n        },\n        \"spec\": {\n            \"supportedModelFormats\"\
+          : [\n            {\n                \"name\": \"peft-model\",\n        \
+          \        \"version\": \"1\",\n                \"autoSelect\": True\n   \
+          \         }\n            ],\n            \"multiModel\": True,\n       \
+          \     \"grpcDataEndpoint\": \"port:8001\",\n            \"grpcEndpoint\"\
+          : \"port:8085\",\n            \"replicas\": 1,\n            \"containers\"\
+          : [\n            {\n                \"name\": \"mlserver\",\n          \
+          \      \"image\": image, # quay.io/aipipeline/peft-model-server:latest\n\
+          \                \"env\": [\n                {\n                    \"name\"\
+          : \"MLSERVER_MODELS_DIR\",\n                    \"value\": \"/models/_mlserver_models/\"\
+          \n                },\n                {\n                    \"name\": \"\
+          MLSERVER_GRPC_PORT\",\n                    \"value\": \"8001\"\n       \
+          \         },\n                {\n                    \"name\": \"MLSERVER_HTTP_PORT\"\
+          ,\n                    \"value\": \"8002\"\n                },\n       \
+          \         {\n                    \"name\": \"MLSERVER_LOAD_MODELS_AT_STARTUP\"\
+          ,\n                    \"value\": \"true\"\n                },\n       \
+          \         {\n                    \"name\": \"MLSERVER_MODEL_NAME\",\n  \
+          \                  \"value\": \"peft-model\"\n                },\n     \
+          \           {\n                    \"name\": \"MLSERVER_HOST\",\n      \
+          \              \"value\": \"127.0.0.1\"\n                },\n          \
+          \      {\n                    \"name\": \"MLSERVER_GRPC_MAX_MESSAGE_LENGTH\"\
+          ,\n                    \"value\": \"-1\"\n                },\n         \
+          \       {\n                    \"name\": \"PRETRAINED_MODEL_PATH\",\n  \
+          \                  \"value\": model_name_or_path\n                },\n \
+          \               {\n                    \"name\": \"PEFT_MODEL_ID\",\n  \
+          \                  \"value\": \"{}/{}\".format(huggingface_name, peft_model_publish_id),\n\
+          \                }\n                ],\n                \"resources\": {\n\
+          \                \"requests\": {\n                    \"cpu\": \"500m\"\
+          ,\n                    \"memory\": \"4Gi\"\n                },\n       \
+          \         \"limits\": {\n                    \"cpu\": \"5\",\n         \
+          \           \"memory\": \"5Gi\"\n                }\n                }\n\
+          \            }\n            ],\n            \"builtInAdapter\": {\n    \
+          \        \"serverType\": \"mlserver\",\n            \"runtimeManagementPort\"\
+          : 8001,\n            \"memBufferBytes\": 134217728,\n            \"modelLoadingTimeoutMillis\"\
+          : 90000\n            }\n        }\n    }\n    create_custom_object(group=\"\
+          serving.kserve.io\", version=\"v1alpha1\",\n                         namespace=namespace,\
+          \ plural=\"servingruntimes\",\n                         manifest=custom_runtime_manifest)\n\
+          \n"
+        image: python:3.10
+    exec-get-hf-token:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - get_hf_token
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.3.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kubernetes'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef get_hf_token() -> str:\n    from kubernetes import client, config\n\
+          \n    config.load_incluster_config()\n    core_api = client.CoreV1Api()\n\
+          \    secret = core_api.read_namespaced_secret(name=\"huggingface-secret\"\
+          , namespace=\"kubeflow-user-example-com\")\n    return secret.data[\"token\"\
+          ]\n\n"
+        image: python:3.10
+    exec-inference-svc:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - inference_svc
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.3.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef inference_svc(model_name: str, namespace: str) -> str :\n\n \
+          \   inference_service = '''\napiVersion: serving.kserve.io/v1beta1\nkind:\
+          \ InferenceService\nmetadata:\n  name: {}\n  namespace: {}\n  annotations:\n\
+          \    serving.kserve.io/deploymentMode: ModelMesh\nspec:\n  predictor:\n\
+          \    model:\n      modelFormat:\n        name: peft-model\n      runtime:\
+          \ {}-server\n      storage:\n        key: localMinIO\n        path: sklearn/mnist-svm.joblib\n\
+          '''.format(model_name, namespace, model_name)\n\n    return inference_service\n\
+          \n"
+        image: python:3.10
+    exec-prompt-tuning-bloom:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - prompt_tuning_bloom
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.3.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'peft' 'transformers'\
+          \ 'datasets' 'torch' 'datasets' 'tqdm' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef prompt_tuning_bloom(huggingface_name: str, peft_model_publish_id:\
+          \ str, model_name_or_path: str, num_epochs: int, hf_token: str):\n    import\
+          \ transformers\n    from transformers import AutoModelForCausalLM, AutoTokenizer,\
+          \ default_data_collator, get_linear_schedule_with_warmup\n    from peft\
+          \ import get_peft_config, get_peft_model, PromptTuningInit, PromptTuningConfig,\
+          \ TaskType, PeftType\n    import torch\n    from datasets import load_dataset\n\
+          \    import os\n    from torch.utils.data import DataLoader\n    from tqdm\
+          \ import tqdm\n    import base64\n\n    peft_config = PromptTuningConfig(\n\
+          \        task_type=TaskType.CAUSAL_LM,\n        prompt_tuning_init=PromptTuningInit.TEXT,\n\
+          \        num_virtual_tokens=8,\n        prompt_tuning_init_text=\"Classify\
+          \ if the tweet is a complaint or not:\",\n        tokenizer_name_or_path=model_name_or_path,\
+          \ # bigscience/bloomz-560m\n    )\n\n    dataset_name = \"twitter_complaints\"\
+          \n    text_column = \"Tweet text\"\n    label_column = \"text_label\"\n\
+          \    max_length = 64\n    lr = 3e-2\n    batch_size = 8\n\n    # Load the\
+          \ twitter_complaints subset of the RAFT dataset. This subset contains tweets\
+          \ that are labeled either complaint or no complaint\n    dataset = load_dataset(\"\
+          ought/raft\", dataset_name)\n    dataset[\"train\"][0]\n\n    # Make the\
+          \ Label column more readable -> replace the Label value with the corresponding\
+          \ label text and store them in a `text_label` column. The `map` function\
+          \ makes it possible to apply this change over the entire dataset in one\
+          \ step.\n    classes = [k.replace(\"_\", \" \") for k in dataset[\"train\"\
+          ].features[\"Label\"].names]\n    dataset = dataset.map(\n        lambda\
+          \ x: {\"text_label\": [classes[label] for label in x[\"Label\"]]},\n   \
+          \     batched=True,\n        num_proc=1,\n    )\n\n    # Preprocess dataset\
+          \ - by setting tokenizer.\n    # Configure the appropriate padding token\
+          \ to use for padding sequences, and determine the maximum length of the\
+          \ tokenized labels\n    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)\n\
+          \    if tokenizer.pad_token_id is None:\n        tokenizer.pad_token_id\
+          \ = tokenizer.eos_token_id\n\n    # Create a preprocess_function to:\n \
+          \   # Tokenize the input text and labels.\n    # For each example in a batch,\
+          \ pad the labels with the tokenizers pad_token_id.\n    # Concatenate the\
+          \ input text and labels into the model_inputs.\n    # Create a separate\
+          \ attention mask for labels and model_inputs.\n    # Loop through each example\
+          \ in the batch again to pad the input ids, labels, and attention mask to\
+          \ the max_length and convert them to PyTorch tensors.\n    def preprocess_function(examples):\n\
+          \        batch_size = len(examples[text_column])\n        inputs = [f\"\
+          {text_column} : {x} Label : \" for x in examples[text_column]]\n       \
+          \ targets = [str(x) for x in examples[label_column]]\n        model_inputs\
+          \ = tokenizer(inputs)\n        labels = tokenizer(targets)\n        for\
+          \ i in range(batch_size):\n            sample_input_ids = model_inputs[\"\
+          input_ids\"][i]\n            label_input_ids = labels[\"input_ids\"][i]\
+          \ + [tokenizer.pad_token_id]\n            model_inputs[\"input_ids\"][i]\
+          \ = sample_input_ids + label_input_ids\n            labels[\"input_ids\"\
+          ][i] = [-100] * len(sample_input_ids) + label_input_ids\n            model_inputs[\"\
+          attention_mask\"][i] = [1] * len(model_inputs[\"input_ids\"][i])\n     \
+          \   for i in range(batch_size):\n            sample_input_ids = model_inputs[\"\
+          input_ids\"][i]\n            label_input_ids = labels[\"input_ids\"][i]\n\
+          \            model_inputs[\"input_ids\"][i] = [tokenizer.pad_token_id] *\
+          \ (\n                max_length - len(sample_input_ids)\n            ) +\
+          \ sample_input_ids\n            model_inputs[\"attention_mask\"][i] = [0]\
+          \ * (max_length - len(sample_input_ids)) + model_inputs[\n             \
+          \   \"attention_mask\"\n            ][i]\n            labels[\"input_ids\"\
+          ][i] = [-100] * (max_length - len(sample_input_ids)) + label_input_ids\n\
+          \            model_inputs[\"input_ids\"][i] = torch.tensor(model_inputs[\"\
+          input_ids\"][i][:max_length])\n            model_inputs[\"attention_mask\"\
+          ][i] = torch.tensor(model_inputs[\"attention_mask\"][i][:max_length])\n\
+          \            labels[\"input_ids\"][i] = torch.tensor(labels[\"input_ids\"\
+          ][i][:max_length])\n        model_inputs[\"labels\"] = labels[\"input_ids\"\
+          ]\n        return model_inputs\n\n    # Use the map function to apply the\
+          \ preprocess_function to the entire dataset. You can remove the unprocessed\
+          \ columns since the model won\u2019t need them:\n    processed_datasets\
+          \ = dataset.map(\n        preprocess_function,\n        batched=True,\n\
+          \        num_proc=1,\n        remove_columns=dataset[\"train\"].column_names,\n\
+          \        load_from_cache_file=False,\n        desc=\"Running tokenizer on\
+          \ dataset\",\n    )\n\n    # Create a DataLoader from the train and eval\
+          \ datasets. Set pin_memory=True to speed up the data transfer to the GPU\
+          \ during training if the samples in your dataset are on a CPU.\n    train_dataset\
+          \ = processed_datasets[\"train\"]\n    eval_dataset = processed_datasets[\"\
+          train\"]\n\n    train_dataloader = DataLoader(\n        train_dataset, shuffle=True,\
+          \ collate_fn=default_data_collator, batch_size=batch_size, pin_memory=False\n\
+          \    )\n    eval_dataloader = DataLoader(eval_dataset, collate_fn=default_data_collator,\
+          \ batch_size=batch_size, pin_memory=False)\n\n    # Initialize a base model\
+          \ from AutoModelForCausalLM, and pass it and peft_config to the get_peft_model()\
+          \ function to create a PeftModel. \n    model = AutoModelForCausalLM.from_pretrained(model_name_or_path)\
+          \ #  bigscience/bloomz-560m\n    model = get_peft_model(model, peft_config)\n\
+          \n    # Print the new PeftModel\u2019s trainable parameters to see how much\
+          \ more efficient it is than training the full parameters of the original\
+          \ model!\n    model.print_trainable_parameters()\n\n    # Setup an optimizer\
+          \ and learning rate scheduler:\n    optimizer = torch.optim.AdamW(model.parameters(),\
+          \ lr=lr)\n    lr_scheduler = get_linear_schedule_with_warmup(\n        optimizer=optimizer,\n\
+          \        num_warmup_steps=0,\n        num_training_steps=(len(train_dataloader)\
+          \ * num_epochs),\n    )\n\n    # Define training loop\n    for epoch in\
+          \ range(num_epochs):\n        model.train()\n        total_loss = 0\n  \
+          \      for step, batch in enumerate(tqdm(train_dataloader)):\n         \
+          \   batch = {k: v for k, v in batch.items()}\n            outputs = model(**batch)\n\
+          \            loss = outputs.loss\n            total_loss += loss.detach().float()\n\
+          \            loss.backward()\n            optimizer.step()\n           \
+          \ lr_scheduler.step()\n            optimizer.zero_grad()\n\n        model.eval()\n\
+          \        eval_loss = 0\n        eval_preds = []\n        for step, batch\
+          \ in enumerate(tqdm(eval_dataloader)):\n            batch = {k: v for k,\
+          \ v in batch.items()}\n            with torch.no_grad():\n             \
+          \   outputs = model(**batch)\n            loss = outputs.loss\n        \
+          \    eval_loss += loss.detach().float()\n            eval_preds.extend(\n\
+          \                tokenizer.batch_decode(torch.argmax(outputs.logits, -1).detach().cpu().numpy(),\
+          \ skip_special_tokens=True)\n            )\n\n        eval_epoch_loss =\
+          \ eval_loss / len(eval_dataloader)\n        eval_ppl = torch.exp(eval_epoch_loss)\n\
+          \        train_epoch_loss = total_loss / len(train_dataloader)\n       \
+          \ train_ppl = torch.exp(train_epoch_loss)\n        print(\"epoch=%s: train_ppl=%s\
+          \ train_epoch_loss=%s eval_ppl=%s eval_epoch_loss=%s\" % (epoch, train_ppl,\
+          \ train_epoch_loss, eval_ppl, eval_epoch_loss))\n\n    # Store and share\
+          \ your model \n    from huggingface_hub import login\n    login(token=base64.b64decode(hf_token).decode())\n\
+          \n    peft_model_id = \"{}/{}\".format(huggingface_name, peft_model_publish_id)\n\
+          \    model.save_pretrained(\"output_dir\", safe_serialization=False)\n\n\
+          \    # Use the push_to_hub function to upload your model to a model repository\
+          \ on the Hub:\n    model.push_to_hub(peft_model_id, use_auth_token=True,\
+          \ safe_serialization=False)\n\n"
+        image: python:3.10
+    exec-serve-a-model-with-kserve:
+      container:
+        args:
+        - -u
+        - kservedeployer.py
+        - --action
+        - '{{$.inputs.parameters[''action'']}}'
+        - --model-name
+        - '{{$.inputs.parameters[''model_name'']}}'
+        - --model-uri
+        - '{{$.inputs.parameters[''model_uri'']}}'
+        - --canary-traffic-percent
+        - '{{$.inputs.parameters[''canary_traffic_percent'']}}'
+        - --namespace
+        - '{{$.inputs.parameters[''namespace'']}}'
+        - --framework
+        - '{{$.inputs.parameters[''framework'']}}'
+        - --custom-model-spec
+        - '{{$.inputs.parameters[''custom_model_spec'']}}'
+        - --autoscaling-target
+        - '{{$.inputs.parameters[''autoscaling_target'']}}'
+        - --service-account
+        - '{{$.inputs.parameters[''service_account'']}}'
+        - --enable-istio-sidecar
+        - '{{$.inputs.parameters[''enable_istio_sidecar'']}}'
+        - --output-path
+        - '{{$.outputs.parameters[''inferenceservice_status''].output_file}}'
+        - --inferenceservice-yaml
+        - '{{$.inputs.parameters[''inferenceservice_yaml'']}}'
+        - --watch-timeout
+        - '{{$.inputs.parameters[''watch_timeout'']}}'
+        - --min-replicas
+        - '{{$.inputs.parameters[''min_replicas'']}}'
+        - --max-replicas
+        - '{{$.inputs.parameters[''max_replicas'']}}'
+        - --request-timeout
+        - '{{$.inputs.parameters[''request_timeout'']}}'
+        - --enable-isvc-status
+        - '{{$.inputs.parameters[''enable_isvc_status'']}}'
+        command:
+        - python
+        image: quay.io/aipipeline/kserve-component:v0.10.1
+    exec-test-modelmesh-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - test_modelmesh_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.3.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'transformers'\
+          \ 'peft' 'torch' 'requests' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef test_modelmesh_model(service: str,  namespace: str, model_name:\
+          \ str, input_tweet: str):\n    import requests\n    import base64\n    import\
+          \ json\n\n    url = \"http://%s.%s:8008/v2/models/%s/infer\" % (service,\
+          \ namespace, model_name)\n    input_json = {\n        \"inputs\": [\n  \
+          \          {\n            \"name\": \"content\",\n            \"shape\"\
+          : [1],\n            \"datatype\": \"BYTES\",\n            \"data\": [input_tweet]\n\
+          \            }\n        ]\n    }\n\n    x = requests.post(url, json = input_json)\n\
+          \n    print(x.text)\n    respond_dict = json.loads(x.text)\n    inference_result\
+          \ = respond_dict[\"outputs\"][0][\"data\"][0]\n    base64_bytes = inference_result.encode(\"\
+          ascii\")\n\n    string_bytes = base64.b64decode(base64_bytes)\n    inference_result\
+          \ = string_bytes.decode(\"ascii\")\n    print(\"inference_result: %s \"\
+          \ % inference_result)\n\n"
+        image: python:3.10
+pipelineInfo:
+  description: A Pipeline for Serving Prompt Tuning LLMs on Modelmesh
+  name: serving-llm-with-prompt-tuning
+root:
+  dag:
+    tasks:
+      condition-1:
+        componentRef:
+          name: comp-condition-1
+        dependentTasks:
+        - serve-a-model-with-kserve
+        inputs:
+          parameters:
+            pipelinechannel--input_tweet:
+              componentInputParameter: input_tweet
+            pipelinechannel--model_name:
+              componentInputParameter: model_name
+            pipelinechannel--test_served_llm_model:
+              componentInputParameter: test_served_llm_model
+        taskInfo:
+          name: condition-1
+        triggerPolicy:
+          condition: inputs.parameter_values['pipelinechannel--test_served_llm_model']
+            == 'true'
+      deploy-modelmesh-custom-runtime:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-deploy-modelmesh-custom-runtime
+        dependentTasks:
+        - prompt-tuning-bloom
+        inputs:
+          parameters:
+            huggingface_name:
+              componentInputParameter: huggingface_name
+            image:
+              runtimeValue:
+                constant: quay.io/aipipeline/peft-model-server:latest
+            model_name_or_path:
+              componentInputParameter: model_name_or_path
+            namespace:
+              runtimeValue:
+                constant: modelmesh-serving
+            peft_model_publish_id:
+              componentInputParameter: peft_model_publish_id
+            server_name:
+              componentInputParameter: model_name
+        taskInfo:
+          name: deploy-modelmesh-custom-runtime
+      get-hf-token:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-get-hf-token
+        taskInfo:
+          name: get-hf-token
+      inference-svc:
+        cachingOptions: {}
+        componentRef:
+          name: comp-inference-svc
+        dependentTasks:
+        - deploy-modelmesh-custom-runtime
+        inputs:
+          parameters:
+            model_name:
+              componentInputParameter: model_name
+            namespace:
+              runtimeValue:
+                constant: modelmesh-serving
+        taskInfo:
+          name: inference-svc
+      prompt-tuning-bloom:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-prompt-tuning-bloom
+        dependentTasks:
+        - get-hf-token
+        inputs:
+          parameters:
+            hf_token:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: get-hf-token
+            huggingface_name:
+              componentInputParameter: huggingface_name
+            model_name_or_path:
+              componentInputParameter: model_name_or_path
+            num_epochs:
+              componentInputParameter: num_epochs
+            peft_model_publish_id:
+              componentInputParameter: peft_model_publish_id
+        taskInfo:
+          name: prompt-tuning-bloom
+      serve-a-model-with-kserve:
+        cachingOptions: {}
+        componentRef:
+          name: comp-serve-a-model-with-kserve
+        dependentTasks:
+        - inference-svc
+        inputs:
+          parameters:
+            action:
+              runtimeValue:
+                constant: apply
+            inferenceservice_yaml:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: inference-svc
+        taskInfo:
+          name: serve-a-model-with-kserve
+  inputDefinitions:
+    parameters:
+      huggingface_name:
+        defaultValue: difince
+        isOptional: true
+        parameterType: STRING
+      input_tweet:
+        defaultValue: '@nationalgridus I have no water and the bill is current and
+          paid. Can you do something about this?'
+        isOptional: true
+        parameterType: STRING
+      model_name:
+        defaultValue: vml-demo
+        isOptional: true
+        parameterType: STRING
+      model_name_or_path:
+        defaultValue: bigscience/bloomz-560m
+        isOptional: true
+        parameterType: STRING
+      num_epochs:
+        defaultValue: 50.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      peft_model_publish_id:
+        defaultValue: bloomz-560m_PROMPT_TUNING_CAUSAL_LM
+        isOptional: true
+        parameterType: STRING
+      test_served_llm_model:
+        defaultValue: 'true'
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.3.0
