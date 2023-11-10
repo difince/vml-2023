@@ -1,11 +1,8 @@
-import kfp
 import kfp.dsl as dsl
 from kfp.dsl import component
 from kfp.compiler import Compiler
 import kfp.components as comp
 
-hf_name=""
-hf_token=""
 
 peft_model_server_image="quay.io/aipipeline/peft-model-server:latest"
 modelmesh_namespace="modelmesh-serving"
@@ -17,7 +14,7 @@ kserv_component="https://raw.githubusercontent.com/kubeflow/pipelines/release-2.
     packages_to_install=["peft", "transformers", "datasets", "torch", "datasets", "tqdm"],
     base_image='python:3.10'
 )
-def prompt_tuning_bloom(peft_model_publish_id: str, model_name_or_path: str, num_epochs: int):
+def prompt_tuning_bloom(peft_model_publish_id: str, model_name_or_path: str, num_epochs: int, hf_token: str):
     from transformers import AutoModelForCausalLM, AutoTokenizer, default_data_collator, get_linear_schedule_with_warmup
     from peft import get_peft_config, get_peft_model, PromptTuningInit, PromptTuningConfig, TaskType, PeftType
     import torch
@@ -25,6 +22,7 @@ def prompt_tuning_bloom(peft_model_publish_id: str, model_name_or_path: str, num
     import os
     from torch.utils.data import DataLoader
     from tqdm import tqdm
+    import base64
 
     peft_config = PromptTuningConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -145,19 +143,17 @@ def prompt_tuning_bloom(peft_model_publish_id: str, model_name_or_path: str, num
         print("epoch=%s: train_ppl=%s train_epoch_loss=%s eval_ppl=%s eval_epoch_loss=%s" % (epoch, train_ppl, train_epoch_loss, eval_ppl, eval_epoch_loss))
 
     from huggingface_hub import login
-    token = os.environ.get("HUGGINGFACE_TOKEN")
-
-    login(token=token)
+    login(token=base64.b64decode(hf_token).decode())
 
     peft_model_id = peft_model_publish_id
-    model.save_pretrained("output_dir") 
-    model.push_to_hub(peft_model_id, use_auth_token=True)
+    model.save_pretrained("output_dir", safe_serialization=False)
+    model.push_to_hub(peft_model_id, use_auth_token=True, safe_serialization=False)
 
 @component(
     packages_to_install=["kubernetes"],
     base_image='python:3.10'
 )
-def deploy_modelmesh_custom_runtime(peft_model_publish_id: str, model_name_or_path: str, server_name: str, namespace: str, image: str):
+def deploy_modelmesh_custom_runtime(huggingface_name: str, peft_model_publish_id: str, model_name_or_path: str, server_name: str, namespace: str, image: str):
     import kubernetes.config as k8s_config
     import kubernetes.client as k8s_client
     from kubernetes.client.exceptions import ApiException
@@ -240,7 +236,7 @@ def deploy_modelmesh_custom_runtime(peft_model_publish_id: str, model_name_or_pa
                 },
                 {
                     "name": "PEFT_MODEL_ID",
-                    "value": peft_model_publish_id
+                    "value": "{}/{}".format(huggingface_name, peft_model_publish_id),
                 }
                 ],
                 "resources": {
@@ -325,24 +321,41 @@ def test_modelmesh_model(service: str,  namespace: str, model_name: str, input_t
     inference_result = string_bytes.decode("ascii")
     print("inference_result: %s " % inference_result)
 
+@component(
+    packages_to_install=["kubernetes"],
+    base_image='python:3.10'
+)
+def get_hf_token() -> str:
+    from kubernetes import client, config
+
+    config.load_incluster_config()
+    core_api = client.CoreV1Api()
+    secret = core_api.read_namespaced_secret(name="huggingface-secret", namespace="kubeflow-user-example-com")
+    return secret.data["token"]
+
 # Define your pipeline function
 @dsl.pipeline(
     name="Serving LLM with Prompt tuning",
     description="A Pipeline for Serving Prompt Tuning LLMs on Modelmesh"
 )
 def prompt_tuning_pipeline(
-    peft_model_publish_id: str = hf_name+"/bloomz-560m_PROMPT_TUNING_CAUSAL_LM",
+    huggingface_name: str = "difince",
+    peft_model_publish_id: str = "bloomz-560m_PROMPT_TUNING_CAUSAL_LM",
     model_name_or_path: str = "bigscience/bloomz-560m",
     model_name: str = "vml-demo",
     input_tweet: str = "@nationalgridus I have no water and the bill is current and paid. Can you do something about this?",
     test_served_llm_model: str ="true",
-    num_epochs: int = 50
+    num_epochs: int = 1
 ):
+    hf_token_task = get_hf_token()
     prompt_tuning_llm = prompt_tuning_bloom( peft_model_publish_id=peft_model_publish_id, 
                                              model_name_or_path=model_name_or_path,
-                                             num_epochs=num_epochs)
-    prompt_tuning_llm.set_env_variable('HUGGINGFACE_TOKEN', hf_token)
-    deploy_modelmesh_custom_runtime_task = deploy_modelmesh_custom_runtime(peft_model_publish_id=peft_model_publish_id, 
+                                             num_epochs=num_epochs,
+                                             hf_token=hf_token_task.output)
+
+    deploy_modelmesh_custom_runtime_task = deploy_modelmesh_custom_runtime(
+                                                                           huggingface_name=huggingface_name,
+                                                                           peft_model_publish_id=peft_model_publish_id,
                                                                            model_name_or_path=model_name_or_path,
                                                                            server_name=model_name, namespace=modelmesh_namespace,
                                                                            image=peft_model_server_image)
