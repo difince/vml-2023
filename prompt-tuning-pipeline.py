@@ -11,7 +11,7 @@ pipeline_out_file="llm-prompt_tuning_pipeline.yaml"
 kserv_component="https://raw.githubusercontent.com/kubeflow/pipelines/release-2.0.1/components/kserve/component.yaml"
 
 @component(
-    packages_to_install=["peft", "transformers", "datasets", "torch", "datasets", "tqdm"],
+    packages_to_install=["peft", "transformers==4.34.0", "datasets", "torch", "datasets", "tqdm"],
     base_image='python:3.10'
 )
 def prompt_tuning_bloom(peft_model_publish_id: str, model_name_or_path: str, num_epochs: int, hf_token: str):
