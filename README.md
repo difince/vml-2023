@@ -1,10 +1,10 @@
-# Serve large language models (LLMs) with custom prompt tuning configuration using Kubeflow Pipelines
+# Train prompt tuning configuration against LLM and Serve them using Kubeflow Pipelines
 
-This repository demonstrates how Kubeflow could be leveraged for prompt tuning foundational LLM and serving the tunned models. 
+This repository demonstrates how Kubeflow could be leveraged for prompt tuning a foundational large language model (LLM) and serving the prompt-tunned model. 
 Specifically:
-1. Train a prompt tuning configuration against Hugging Face open source model.
-2. Publish a trained configuration to HuggingFace.
-3. Serve a prompt tuning configuration along with HuggingFace open source large language models (LLM).
+1. Train ( with the use of [PEFT](https://huggingface.co/docs/peft/index) and  [RAFT](https://huggingface.co/datasets/ought/raft) dataset) a prompt tuning configuration against a LLM - [bigscience/bloomz-560m](https://huggingface.co/bigscience/bloomz-560m#model-summary)
+2. Publish the trained configuration to HuggingFace.
+3. Serve the prompt tuning configuration along with HuggingFace open source LLM.
 4. Automate the above steps with Kubeflow Pipelines
 
 
@@ -22,7 +22,7 @@ Specifically:
 
 ## Prerequisites
 
-To successfully run the example provided in this repository, Kubeflow cluster and KServe ModelMesh need to brought up. Before installing them, you must have the following dependencies installed in local environment.
+To successfully run the example provided in this repository, Kubeflow cluster and KServe ModelMesh need to be brought up. Before installing them, you must have the following dependencies installed in a local environment.
 - Python 3.9+
 - Docker
 - Kubectl
@@ -46,7 +46,7 @@ kubectl -n kubeflow wait --for=condition=Ready pods --all --timeout=1200s
 
 ## KServe Modelmesh Installation
 
-ModelMesh Serving is the Controller for managing ModelMesh, a general-purpose model serving management/routing layer. The instructions for installing it are provided on the bellows. For more detailed information on how to get started, check our this [link](https://github.com/kserve/modelmesh-serving/blob/main/docs/quickstart.md)
+ModelMesh Serving is the Controller for managing ModelMesh, a general-purpose model serving management/routing layer. The instructions for installing it are provided below. For more detailed information on how to get started, check out this [link](https://github.com/kserve/modelmesh-serving/blob/main/docs/quickstart.md)
 
 1. Clone Modelmesh serving repository
 ```bash
@@ -124,4 +124,4 @@ You could leverage the notebook to create the prompt tuning pipeline.  To do so,
 
     Once logged in to the Kubeflow dashboard, navigate to "Notebooks" to create a new `JupyterLab` notebook with `kubeflownotebookswg/jupyter-tensorflow-full:v1.8.0-rc.0` image and configuration "Allow access to Kubeflow Pipelines" enabled (available in "Advanced options").
 
-    After notebook is running, `connect` to the notebook and upload the [notebook file](./prompt_tunning_pipeline.ipynb) notebook.
+    After the notebook is running, `connect` to the notebook and upload the [notebook file](./prompt_tunning_pipeline.ipynb) notebook.
